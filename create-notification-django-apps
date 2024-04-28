@@ -1,0 +1,136 @@
+How to create simple notifications in Django
+
+In this case, i am using a NiceAdmin theme, in this sample project i create backoffice apps.
+Why NiceAdmin ? it's free and easy to customize, well after we create project and the apps.
+we need to create file context_processors.py and write the code like this
+
+from kurir.models import Notifikasi
+from django.http import JsonResponse
+
+def notifikasi(request):
+    if request.user.is_authenticated:
+        unread_msg = Notifikasi.objects.filter(user=request.user, read_msg=False).order_by('-event_date')[:5]
+        return {
+            'notifications': unread_msg,
+            'count_notifications': unread_msg.count()
+        }
+    return {}
+
+def reset_notifications(request):
+    if request.method == 'POST' and request.user.is_authenticated:
+        Notifikasi.objects.filter(user=request.user, read_msg=False)
+        return JsonResponse({'status': 'success'})
+    else:
+        return JsonResponse({'status': 'failed'}, status=400)
+		
+models.py (let's say the apps name is kurir) 
+
+class Notifikasi(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user_activity = models.TextField()
+    event_date = models.DateTimeField(auto_now_add=True)
+    read_msg = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name_plural = 'System Notification'
+
+    def __str__(self):
+        return str(self.user)
+	
+Then we need add the context_processors at settings.py 
+
+'OPTIONS': {
+	'context_processors': [
+		#....
+		'kurir.context_processors.notifikasi', #kurir is apps name, context_processors is file name context_processors.py and notifikasi is function name
+	],
+},
+
+don't forget the urls.py at the django project, it will link the notifications...
+
+from django.contrib import admin
+from django.urls import path, include 
+from django.conf import settings
+from django.conf.urls.static import static
+from .context_processors import *
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('reset-notifications/', reset_notifications, name='reset-notifications'),
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+See... ? we bring the context_processors to the urls.py then we add them as a link...we still had to added in every views where we need to capture the activity
+
+Notifikasi.objects.create(
+	user=request.user,
+	user_activity=f"{request.user.username} has add new user {username_baru}"
+)
+
+in NiceAdmin theme, you should open the header.html and see the part like this, then must edit....
+
+<li class="nav-item dropdown">
+	<a class="nav-link nav-icon" href="#" data-bs-toggle="dropdown" id="notificationDropdown">
+	  <i class="bi bi-bell"></i>
+	  <span class="badge bg-primary badge-number">{{ count_notifications }}</span>
+	</a>
+
+	<ul class="dropdown-menu dropdown-menu-end dropdown-menu-arrow notifications">
+	  <li class="dropdown-header">
+		There was {{ count_notifications }} new notification
+		<a href="#"><span class="badge rounded-pill bg-primary p-2 ms-2">View all</span></a>
+	  </li>
+	  <li>
+		<hr class="dropdown-divider">
+	  </li>
+
+	<li>
+		<hr class="dropdown-divider">
+	  </li>
+
+	  {% for notification in notifications %}
+	  <li class="notification-item">
+		<i class="bi bi-exclamation-circle text-warning"></i>
+		<div>
+		  <h4>{{ notification.user.username }}</h4>
+		  <p>{{ notification.user_activity }}</p>
+		  <p>{{ notification.event_date|timesince }} lalu</p>
+		</div>
+	  </li>
+	  <li>
+		<hr class="dropdown-divider">
+	  </li>
+	  {% endfor %}
+	  <li class="dropdown-footer">
+		<a href="#">Tampilkan semua notifikasi</a>
+	  </li>
+	</ul>
+</li>
+
+don't forget the another javascript, usually at footer, we need to add this
+<script type="text/javascript" src="/jquery/jquery-3.6.0.min.js">
+$(document).ready(function() {
+	$("#notificationDropdown").click(function() {
+		$.ajax({
+			url: "{% url 'reset-notifications' %}",
+			type: "POST",
+			headers: {'X-CSRFToken': $('input[name="csrfmiddlewaretoken"]').val()},
+			success: function(response) {
+				if (response.status === "success") {
+					$(".badge-number").text("0"); 
+					$(".notifications li.notification-item").remove(); 
+					$(".dropdown-header").html('Anda tidak memiliki pemberitahuan baru'); 
+				}
+			},
+			error: function() {
+				alert("Gagal me reset notifikasi.");
+			}
+		});
+	});
+});
+
+document.querySelector('.dropdown-menu.notifications').addEventListener('show.bs.dropdown', function() {
+	document.getElementById('notificationCount').textContent = '0';
+});
+
+don't forget, about these part url: "{% url 'reset-notifications' %}", took from the urls.py django project
+it will global link even you put the header, footer...etc in every single file that you don't need to make them as dictionary at views.py in general.
